@@ -1,0 +1,1941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compute Optimization — Stop Burning Cash on GPU Infrastructure</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Crimson+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #00FFA3;
+            --dark: #0A0E1A;
+            --dark-2: #131826;
+            --dark-3: #1A1F2E;
+            --accent: #FF3366;
+            --text: #E8E8E8;
+            --text-dim: #8B92A7;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Crimson Pro', serif;
+            background: var(--dark);
+            color: var(--text);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        /* Animated grid background */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 255, 163, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 163, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+            animation: gridPulse 8s ease-in-out infinite;
+        }
+
+        @keyframes gridPulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Cursor trail effect */
+        .cursor-glow {
+            position: fixed;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(0, 255, 163, 0.15) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 1;
+            transition: transform 0.2s ease-out;
+            mix-blend-mode: screen;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 1.5rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            background: rgba(10, 14, 26, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            animation: slideDown 0.8s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .logo {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--primary);
+            letter-spacing: -0.02em;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 3rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.3s;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 1px;
+            background: var(--primary);
+            transition: width 0.3s;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        /* Mobile Menu */
+        .mobile-menu-toggle {
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.5rem;
+            z-index: 1001;
+        }
+
+        .mobile-menu-toggle span {
+            width: 25px;
+            height: 2px;
+            background: var(--primary);
+            transition: all 0.3s;
+        }
+
+        .mobile-menu-toggle.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .mobile-menu-toggle.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .mobile-menu-toggle.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 80%;
+            max-width: 400px;
+            height: 100vh;
+            background: var(--dark-2);
+            border-left: 1px solid var(--border);
+            z-index: 999;
+            transition: right 0.4s ease-out;
+            padding: 6rem 2rem 2rem;
+        }
+
+        .mobile-menu.active {
+            right: 0;
+        }
+
+        .mobile-menu-links {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .mobile-menu-links a {
+            color: var(--text);
+            text-decoration: none;
+            font-size: 1.5rem;
+            font-weight: 600;
+            transition: color 0.3s;
+            cursor: pointer;
+        }
+
+        .mobile-menu-links a:hover {
+            color: var(--primary);
+        }
+
+        .mobile-menu .cta-button {
+            width: 100%;
+            margin-top: 2rem;
+        }
+
+        .cta-button {
+            background: var(--primary);
+            color: var(--dark);
+            padding: 0.7rem 1.8rem;
+            border: none;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: var(--accent);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.5s, height 0.5s;
+        }
+
+        .cta-button:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .cta-button span {
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 255, 163, 0.3);
+        }
+
+        /* Hero Section */
+        .hero {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8rem 4rem 4rem;
+            z-index: 2;
+        }
+
+        .hero-content {
+            max-width: 1400px;
+            width: 100%;
+        }
+
+        .hero-eyebrow {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--primary);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 2rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease-out 0.2s forwards;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero h1 {
+            font-size: clamp(3rem, 8vw, 7rem);
+            font-weight: 300;
+            line-height: 1.1;
+            margin-bottom: 2rem;
+            letter-spacing: -0.03em;
+            opacity: 0;
+            animation: fadeInUp 1s ease-out 0.4s forwards;
+        }
+
+        .hero h1 strong {
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), #00D4FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-description {
+            font-size: 1.5rem;
+            color: var(--text-dim);
+            max-width: 800px;
+            margin-bottom: 3rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease-out 0.6s forwards;
+        }
+
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease-out 0.8s forwards;
+        }
+
+        .stat-card {
+            background: var(--dark-2);
+            border: 1px solid var(--border);
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), transparent);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.6s;
+        }
+
+        .stat-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .stat-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-5px);
+            box-shadow: 0 20px 50px rgba(0, 255, 163, 0.1);
+        }
+
+        .stat-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.95rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .hero-cta {
+            display: flex;
+            gap: 1.5rem;
+            opacity: 0;
+            animation: fadeInUp 1s ease-out 1s forwards;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: var(--dark);
+            padding: 1.2rem 3rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.9rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            text-decoration: none;
+            display: inline-block;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(0, 255, 163, 0.4);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            padding: 1.2rem 3rem;
+            border: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        /* Problem Section */
+        .problem-section {
+            position: relative;
+            padding: 8rem 4rem;
+            background: var(--dark-2);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            z-index: 2;
+        }
+
+        .section-header {
+            max-width: 1400px;
+            margin: 0 auto 4rem;
+        }
+
+        .section-eyebrow {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--primary);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 300;
+            line-height: 1.2;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title strong {
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .section-description {
+            font-size: 1.3rem;
+            color: var(--text-dim);
+            max-width: 800px;
+        }
+
+        .problem-grid {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
+        .problem-card {
+            background: var(--dark-3);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            position: relative;
+            transition: all 0.4s;
+        }
+
+        .problem-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 0;
+            background: var(--primary);
+            transition: height 0.4s;
+        }
+
+        .problem-card:hover::after {
+            height: 100%;
+        }
+
+        .problem-card:hover {
+            transform: translateX(10px);
+            border-color: rgba(0, 255, 163, 0.3);
+        }
+
+        .problem-icon {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+            display: block;
+        }
+
+        .problem-title {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        .problem-text {
+            font-size: 1.1rem;
+            color: var(--text-dim);
+            line-height: 1.8;
+        }
+
+        /* Live Cost Calculator */
+        .calculator-section {
+            position: relative;
+            padding: 8rem 4rem;
+            z-index: 2;
+        }
+
+        .calculator-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: var(--dark-2);
+            border: 1px solid var(--border);
+            padding: 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .calculator-container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(0, 255, 163, 0.1), transparent);
+            pointer-events: none;
+        }
+
+        .calculator-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: start;
+        }
+
+        .calculator-inputs {
+            position: relative;
+            z-index: 1;
+        }
+
+        .input-group {
+            margin-bottom: 2.5rem;
+        }
+
+        .input-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .slider-container {
+            position: relative;
+        }
+
+        .slider {
+            width: 100%;
+            height: 4px;
+            background: var(--dark-3);
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: var(--primary);
+            cursor: pointer;
+            border-radius: 50%;
+            border: 3px solid var(--dark-2);
+            transition: all 0.2s;
+        }
+
+        .slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 20px var(--primary);
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: var(--primary);
+            cursor: pointer;
+            border-radius: 50%;
+            border: 3px solid var(--dark-2);
+        }
+
+        .slider-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-top: 0.5rem;
+        }
+
+        .calculator-output {
+            background: var(--dark-3);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            position: sticky;
+            top: 120px;
+        }
+
+        .output-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 2rem;
+        }
+
+        .savings-display {
+            margin-bottom: 3rem;
+        }
+
+        .savings-amount {
+            font-size: 4rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1;
+        }
+
+        .savings-label {
+            font-size: 1.1rem;
+            color: var(--text-dim);
+        }
+
+        .breakdown-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .breakdown-label {
+            color: var(--text-dim);
+        }
+
+        .breakdown-value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* Process Section */
+        .process-section {
+            position: relative;
+            padding: 8rem 4rem;
+            background: var(--dark-2);
+            z-index: 2;
+        }
+
+        .process-timeline {
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .timeline-line {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border);
+            transform: translateX(-50%);
+        }
+
+        .process-step {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            margin-bottom: 6rem;
+            position: relative;
+        }
+
+        .process-step:nth-child(even) .step-content {
+            order: 2;
+        }
+
+        .step-number {
+            width: 60px;
+            height: 60px;
+            background: var(--dark-3);
+            border: 3px solid var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+
+        .step-content {
+            padding: 2rem;
+        }
+
+        .step-title {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .step-description {
+            font-size: 1.1rem;
+            color: var(--text-dim);
+            line-height: 1.8;
+            margin-bottom: 1.5rem;
+        }
+
+        .step-features {
+            list-style: none;
+        }
+
+        .step-features li {
+            padding-left: 1.5rem;
+            position: relative;
+            margin-bottom: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .step-features li::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* Pricing Section */
+        .pricing-section {
+            position: relative;
+            padding: 8rem 4rem;
+            z-index: 2;
+        }
+
+        .pricing-grid {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+        }
+
+        .pricing-card {
+            background: var(--dark-2);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            transition: all 0.4s;
+            position: relative;
+        }
+
+        .pricing-card.featured {
+            background: var(--dark-3);
+            border-color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        .pricing-card.featured::before {
+            content: 'MOST POPULAR';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            background: var(--primary);
+            color: var(--dark);
+            padding: 0.5rem;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-10px);
+            border-color: var(--primary);
+            box-shadow: 0 20px 50px rgba(0, 255, 163, 0.2);
+        }
+
+        .pricing-name {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .pricing-description {
+            font-size: 0.95rem;
+            color: var(--text-dim);
+            margin-bottom: 2rem;
+        }
+
+        .pricing-price {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .pricing-period {
+            color: var(--text-dim);
+            margin-bottom: 2rem;
+        }
+
+        .pricing-features {
+            list-style: none;
+            margin-bottom: 2rem;
+        }
+
+        .pricing-features li {
+            padding: 0.8rem 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .pricing-features li::before {
+            content: '✓';
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 1.2rem;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            position: relative;
+            padding: 8rem 4rem;
+            background: var(--dark-2);
+            border-top: 1px solid var(--border);
+            text-align: center;
+            z-index: 2;
+        }
+
+        .cta-content {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .cta-section h2 {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 300;
+            line-height: 1.2;
+            margin-bottom: 2rem;
+        }
+
+        .cta-section h2 strong {
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .cta-section p {
+            font-size: 1.3rem;
+            color: var(--text-dim);
+            margin-bottom: 3rem;
+        }
+
+        /* Footer */
+        footer {
+            position: relative;
+            padding: 4rem 4rem 2rem;
+            background: var(--dark);
+            border-top: 1px solid var(--border);
+            z-index: 2;
+        }
+
+        .footer-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 4rem;
+            margin-bottom: 3rem;
+        }
+
+        .footer-brand {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .footer-tagline {
+            color: var(--text-dim);
+            margin-bottom: 2rem;
+        }
+
+        .footer-column h4 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+        }
+
+        .footer-links {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 0.8rem;
+        }
+
+        .footer-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: var(--primary);
+        }
+
+        .footer-bottom {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            color: var(--text-dim);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .calculator-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .calculator-output {
+                position: static;
+            }
+
+            .process-step {
+                grid-template-columns: 1fr;
+            }
+
+            .timeline-line {
+                left: 30px;
+            }
+
+            .step-number {
+                left: 30px;
+            }
+
+            .process-step:nth-child(even) .step-content {
+                order: 1;
+            }
+
+            .footer-content {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .problem-grid {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            }
+
+            .pricing-grid {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            nav {
+                padding: 1rem 2rem;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .mobile-menu-toggle {
+                display: flex;
+            }
+
+            .mobile-menu {
+                display: block;
+            }
+
+            nav .cta-button {
+                display: none;
+            }
+
+            .hero {
+                padding: 6rem 2rem 2rem;
+                min-height: auto;
+            }
+
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+
+            .hero-description {
+                font-size: 1.2rem;
+            }
+
+            .hero-stats {
+                grid-template-columns: 1fr 1fr;
+                gap: 1rem;
+            }
+
+            .stat-card {
+                padding: 1.5rem;
+            }
+
+            .stat-number {
+                font-size: 2rem;
+            }
+
+            .hero-cta {
+                flex-direction: column;
+            }
+
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+                text-align: center;
+                padding: 1rem 2rem;
+            }
+
+            .problem-section,
+            .calculator-section,
+            .process-section,
+            .pricing-section,
+            .cta-section {
+                padding: 4rem 2rem;
+            }
+
+            .section-title {
+                font-size: 2rem;
+            }
+
+            .section-description {
+                font-size: 1.1rem;
+            }
+
+            .problem-grid,
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .problem-card {
+                padding: 2rem;
+            }
+
+            .calculator-container {
+                padding: 2rem;
+            }
+
+            .calculator-output {
+                padding: 2rem;
+            }
+
+            .savings-amount {
+                font-size: 3rem;
+            }
+
+            .step-content {
+                padding: 1rem;
+            }
+
+            .step-title {
+                font-size: 1.5rem;
+            }
+
+            .pricing-card {
+                padding: 2rem;
+            }
+
+            .pricing-card.featured {
+                transform: scale(1);
+            }
+
+            .cta-section h2 {
+                font-size: 2rem;
+            }
+
+            .cta-section p {
+                font-size: 1.1rem;
+            }
+
+            .footer-content {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .footer-bottom {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            /* Hide cursor glow on mobile */
+            .cursor-glow {
+                display: none;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .hero-stats {
+                grid-template-columns: 1fr;
+            }
+
+            .stat-card {
+                padding: 1.2rem;
+            }
+
+            .pricing-price {
+                font-size: 2.5rem;
+            }
+        }
+
+        /* Scroll animations */
+        .fade-in-up {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.8s, transform 0.8s;
+        }
+
+        .fade-in-up.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 14, 26, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: var(--dark-2);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: scale(1);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 2rem;
+            cursor: pointer;
+            transition: color 0.3s;
+            line-height: 1;
+            padding: 0;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            color: var(--primary);
+        }
+
+        .modal-header {
+            margin-bottom: 2rem;
+        }
+
+        .modal-title {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .modal-subtitle {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-label .required {
+            color: var(--accent);
+        }
+
+        .form-input,
+        .form-textarea,
+        .form-select {
+            width: 100%;
+            background: var(--dark-3);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 1rem;
+            font-family: 'Crimson Pro', serif;
+            font-size: 1rem;
+            transition: all 0.3s;
+            outline: none;
+        }
+
+        .form-input:focus,
+        .form-textarea:focus,
+        .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(0, 255, 163, 0.1);
+        }
+
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .form-submit {
+            width: 100%;
+            background: var(--primary);
+            color: var(--dark);
+            padding: 1.2rem;
+            border: none;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-top: 1rem;
+        }
+
+        .form-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 255, 163, 0.4);
+        }
+
+        .form-submit:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .form-success {
+            display: none;
+            text-align: center;
+            padding: 3rem;
+        }
+
+        .form-success.active {
+            display: block;
+        }
+
+        .success-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .success-title {
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .success-text {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+        }
+
+        @media (max-width: 768px) {
+            .modal-content {
+                padding: 2rem;
+            }
+
+            .modal-title {
+                font-size: 2rem;
+            }
+
+            .modal-subtitle {
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="cursor-glow" id="cursorGlow"></div>
+
+    <nav>
+        <div class="logo">COMPUTE_OPT</div>
+        <ul class="nav-links">
+            <li><a href="#problem" onclick="scrollToSection('problem')">Problem</a></li>
+            <li><a href="#calculator" onclick="scrollToSection('calculator')">Calculator</a></li>
+            <li><a href="#process" onclick="scrollToSection('process')">Process</a></li>
+            <li><a href="#pricing" onclick="scrollToSection('pricing')">Pricing</a></li>
+        </ul>
+        <button class="cta-button" onclick="scrollToSection('cta')"><span>Get Free Audit</span></button>
+        <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileMenu()">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+    </nav>
+
+    <div class="mobile-menu" id="mobileMenu">
+        <ul class="mobile-menu-links">
+            <li><a href="#problem" onclick="scrollToSection('problem'); toggleMobileMenu()">Problem</a></li>
+            <li><a href="#calculator" onclick="scrollToSection('calculator'); toggleMobileMenu()">Calculator</a></li>
+            <li><a href="#process" onclick="scrollToSection('process'); toggleMobileMenu()">Process</a></li>
+            <li><a href="#pricing" onclick="scrollToSection('pricing'); toggleMobileMenu()">Pricing</a></li>
+        </ul>
+        <button class="cta-button" onclick="scrollToSection('cta'); toggleMobileMenu()"><span>Get Free Audit</span></button>
+    </div>
+
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-eyebrow">GPU Infrastructure Optimization</div>
+            <h1>Stop <strong>Burning Cash</strong> on GPU Compute</h1>
+            <p class="hero-description">
+                AI companies waste 25-50% of their compute budget on idle GPUs, wrong instance types, 
+                and inefficient pipelines. We find it, fix it, and save you $100k+ annually.
+            </p>
+            <div class="hero-stats">
+                <div class="stat-card">
+                    <span class="stat-number">25-50%</span>
+                    <span class="stat-label">Average Cost Reduction</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number">60-70%</span>
+                    <span class="stat-label">Spot Instance Savings</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number">2-3x</span>
+                    <span class="stat-label">Training Speedup</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-number">$336k</span>
+                    <span class="stat-label">Avg Annual Savings</span>
+                </div>
+            </div>
+            <div class="hero-cta">
+                <a href="#calculator" class="btn-primary">Calculate Your Savings</a>
+                <a href="#process" class="btn-secondary">How It Works</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="problem" class="problem-section">
+        <div class="section-header fade-in-up">
+            <div class="section-eyebrow">The $50 Billion Problem</div>
+            <h2 class="section-title">AI Companies Are <strong>Hemorrhaging Money</strong></h2>
+            <p class="section-description">
+                AI infrastructure spending grew 35% in 2024 to $50 billion. Most of it is wasted on 
+                inefficient compute allocation, wrong GPU selection, and poor pipeline optimization.
+            </p>
+        </div>
+        <div class="problem-grid">
+            <div class="problem-card fade-in-up">
+                <span class="problem-icon">💸</span>
+                <h3 class="problem-title">30% Idle GPUs</h3>
+                <p class="problem-text">
+                    Resources sit unused due to poor allocation. H100s costing $8/hour running empty. 
+                    Pure waste that adds up to tens of thousands monthly.
+                </p>
+            </div>
+            <div class="problem-card fade-in-up">
+                <span class="problem-icon">📈</span>
+                <h3 class="problem-title">2.4x Annual Growth</h3>
+                <p class="problem-text">
+                    Training costs double every 10 months. Your compute budget is unsustainable without 
+                    aggressive optimization. The gap widens every quarter.
+                </p>
+            </div>
+            <div class="problem-card fade-in-up">
+                <span class="problem-icon">⚙️</span>
+                <h3 class="problem-title">Wrong GPU Selection</h3>
+                <p class="problem-text">
+                    Using H100s when A100s would work. On-demand when spot instances are 65% cheaper. 
+                    Small inefficiencies compound into massive waste.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section id="calculator" class="calculator-section">
+        <div class="section-header fade-in-up">
+            <div class="section-eyebrow">ROI Calculator</div>
+            <h2 class="section-title">Calculate Your <strong>Potential Savings</strong></h2>
+        </div>
+        <div class="calculator-container">
+            <div class="calculator-grid">
+                <div class="calculator-inputs">
+                    <div class="input-group">
+                        <label class="input-label">Monthly GPU Spend</label>
+                        <div class="slider-container">
+                            <input type="range" min="10000" max="500000" value="80000" step="5000" 
+                                   class="slider" id="monthlySpend">
+                            <div class="slider-value">$<span id="spendValue">80,000</span>/month</div>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">GPU Instance Types</label>
+                        <div class="slider-container">
+                            <input type="range" min="1" max="4" value="2" step="1" 
+                                   class="slider" id="gpuTypes">
+                            <div class="slider-value"><span id="gpuValue">H100/A100 Mix</span></div>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Current On-Demand Usage</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="100" value="80" step="10" 
+                                   class="slider" id="onDemand">
+                            <div class="slider-value"><span id="onDemandValue">80</span>%</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="calculator-output">
+                    <div class="output-title">Your Potential Savings</div>
+                    <div class="savings-display">
+                        <div class="savings-amount">$<span id="monthlySavings">28,000</span></div>
+                        <div class="savings-label">Per Month</div>
+                    </div>
+                    <div class="breakdown">
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Annual Savings</span>
+                            <span class="breakdown-value">$<span id="annualSavings">336,000</span></span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Spot Instance Migration</span>
+                            <span class="breakdown-value">$<span id="spotSavings">20,800</span></span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">GPU Right-sizing</span>
+                            <span class="breakdown-value">$<span id="rightsizingSavings">4,000</span></span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-label">Pipeline Optimization</span>
+                            <span class="breakdown-value">$<span id="pipelineSavings">3,200</span></span>
+                        </div>
+                    </div>
+                    <button class="btn-primary" style="width: 100%; margin-top: 2rem;" 
+                            onclick="openModal()">Get Your Free Audit</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="process" class="process-section">
+        <div class="section-header fade-in-up">
+            <div class="section-eyebrow">How We Work</div>
+            <h2 class="section-title">Simple <strong>3-Step Process</strong></h2>
+        </div>
+        <div class="process-timeline">
+            <div class="timeline-line"></div>
+            <div class="process-step fade-in-up">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3 class="step-title">Free Audit</h3>
+                    <p class="step-description">
+                        Share your cloud bills and usage patterns. We analyze your compute spend and 
+                        identify exactly where money is being wasted.
+                    </p>
+                    <ul class="step-features">
+                        <li>Deep-dive into AWS/GCP billing data</li>
+                        <li>GPU utilization analysis</li>
+                        <li>Detailed savings report in 5 days</li>
+                        <li>No obligation, no upfront cost</li>
+                    </ul>
+                </div>
+                <div></div>
+            </div>
+            <div class="process-step fade-in-up">
+                <div class="step-number">2</div>
+                <div></div>
+                <div class="step-content">
+                    <h3 class="step-title">Implementation</h3>
+                    <p class="step-description">
+                        We do the heavy lifting. Migrate workloads to spot instances, right-size your GPU 
+                        selection, optimize data pipelines, and implement mixed-precision training.
+                    </p>
+                    <ul class="step-features">
+                        <li>Spot instance migration strategy</li>
+                        <li>GPU right-sizing recommendations</li>
+                        <li>Training pipeline optimization</li>
+                        <li>4-8 week implementation timeline</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="process-step fade-in-up">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3 class="step-title">Ongoing Optimization</h3>
+                    <p class="step-description">
+                        Continuous monitoring and optimization as you scale. Monthly reports, auto-scaling 
+                        policies, and proactive cost management.
+                    </p>
+                    <ul class="step-features">
+                        <li>Real-time cost monitoring dashboard</li>
+                        <li>Monthly optimization reports</li>
+                        <li>Auto-scaling configuration</li>
+                        <li>Dedicated optimization engineer</li>
+                    </ul>
+                </div>
+                <div></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="pricing" class="pricing-section">
+        <div class="section-header fade-in-up">
+            <div class="section-eyebrow">Transparent Pricing</div>
+            <h2 class="section-title">Pay Only When We <strong>Save You Money</strong></h2>
+        </div>
+        <div class="pricing-grid">
+            <div class="pricing-card fade-in-up">
+                <h3 class="pricing-name">Free Audit</h3>
+                <p class="pricing-description">No commitment. We prove the value first.</p>
+                <div class="pricing-price">$0</div>
+                <p class="pricing-period">One-time deep analysis</p>
+                <ul class="pricing-features">
+                    <li>Complete billing analysis</li>
+                    <li>GPU utilization audit</li>
+                    <li>Detailed savings report</li>
+                    <li>5-day turnaround</li>
+                    <li>Zero obligation</li>
+                </ul>
+                <button class="btn-secondary" style="width: 100%;" 
+                        onclick="openModal()">Request Audit</button>
+            </div>
+            <div class="pricing-card featured fade-in-up">
+                <h3 class="pricing-name">Implementation</h3>
+                <p class="pricing-description">We do the work, you reap the rewards.</p>
+                <div class="pricing-price">20-30%</div>
+                <p class="pricing-period">Of annual savings</p>
+                <ul class="pricing-features">
+                    <li>Full optimization implementation</li>
+                    <li>Spot instance migration</li>
+                    <li>GPU right-sizing</li>
+                    <li>Pipeline optimization</li>
+                    <li>4-8 week timeline</li>
+                    <li>4x+ ROI guarantee</li>
+                </ul>
+                <button class="btn-primary" style="width: 100%;" 
+                        onclick="openModal()">Get Started</button>
+            </div>
+            <div class="pricing-card fade-in-up">
+                <h3 class="pricing-name">Ongoing</h3>
+                <p class="pricing-description">Continuous optimization as you scale.</p>
+                <div class="pricing-price">$5-20k</div>
+                <p class="pricing-period">Per month</p>
+                <ul class="pricing-features">
+                    <li>Real-time monitoring</li>
+                    <li>Monthly optimization reports</li>
+                    <li>Auto-scaling policies</li>
+                    <li>Dedicated engineer</li>
+                    <li>Proactive cost management</li>
+                    <li>Priority support</li>
+                </ul>
+                <button class="btn-secondary" style="width: 100%;" 
+                        onclick="openModal()">Learn More</button>
+            </div>
+        </div>
+    </section>
+
+    <section id="cta" class="cta-section">
+        <div class="cta-content fade-in-up">
+            <h2>Ready to Stop <strong>Wasting Money?</strong></h2>
+            <p>Schedule a free audit. No commitment. We'll show you exactly where your money is going.</p>
+            <button class="btn-primary" style="font-size: 1rem; padding: 1.5rem 4rem;" onclick="openModal()">
+                Schedule Free Audit
+            </button>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-content">
+            <div>
+                <div class="footer-brand">COMPUTE_OPT</div>
+                <p class="footer-tagline">
+                    Enterprise-grade GPU compute optimization for AI companies. 
+                    Cut costs by 25-50% without slowing down.
+                </p>
+            </div>
+            <div class="footer-column">
+                <h4>Product</h4>
+                <ul class="footer-links">
+                    <li><a href="#calculator" onclick="scrollToSection('calculator')">Calculator</a></li>
+                    <li><a href="#process" onclick="scrollToSection('process')">How It Works</a></li>
+                    <li><a href="#pricing" onclick="scrollToSection('pricing')">Pricing</a></li>
+                    <li><a href="#cta" onclick="scrollToSection('cta')">Get Started</a></li>
+                </ul>
+            </div>
+            <div class="footer-column">
+                <h4>Resources</h4>
+                <ul class="footer-links">
+                    <li><a href="case-studies.html">Case Studies</a></li>
+                    <li><a href="blog.html">Blog</a></li>
+                    <li><a href="#">Documentation</a></li>
+                    <li><a href="#">API</a></li>
+                </ul>
+            </div>
+            <div class="footer-column">
+                <h4>Company</h4>
+                <ul class="footer-links">
+                    <li><a href="#">About</a></li>
+                    <li><a href="careers.html">Careers</a></li>
+                    <li><a href="#" onclick="openModal(); return false;">Contact</a></li>
+                    <li><a href="#">Privacy</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>© 2026 Compute Optimization. All rights reserved.</p>
+            <p>Built for AI companies burning cash on GPUs.</p>
+        </div>
+    </footer>
+
+    <!-- Contact Form Modal -->
+    <div class="modal-overlay" id="contactModal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            
+            <div id="contactForm">
+                <div class="modal-header">
+                    <h2 class="modal-title">Get Your Free Audit</h2>
+                    <p class="modal-subtitle">Tell us about your compute infrastructure and we'll show you where you're wasting money.</p>
+                </div>
+
+                <form onsubmit="handleFormSubmit(event)">
+                    <div class="form-group">
+                        <label class="form-label">Full Name <span class="required">*</span></label>
+                        <input type="text" class="form-input" name="name" required placeholder="John Smith">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Work Email <span class="required">*</span></label>
+                        <input type="email" class="form-input" name="email" required placeholder="john@company.com">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Company Name <span class="required">*</span></label>
+                        <input type="text" class="form-input" name="company" required placeholder="Acme AI Corp">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Monthly GPU Spend <span class="required">*</span></label>
+                        <select class="form-select" name="spend" required>
+                            <option value="">Select range...</option>
+                            <option value="<50k">Less than $50k/month</option>
+                            <option value="50-100k">$50k - $100k/month</option>
+                            <option value="100-250k">$100k - $250k/month</option>
+                            <option value="250k+">$250k+/month</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Primary Cloud Provider</label>
+                        <select class="form-select" name="provider">
+                            <option value="">Select provider...</option>
+                            <option value="aws">AWS</option>
+                            <option value="gcp">Google Cloud</option>
+                            <option value="azure">Azure</option>
+                            <option value="multiple">Multiple providers</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">What are you optimizing for?</label>
+                        <textarea class="form-textarea" name="message" placeholder="E.g., We're running 24/7 H100 instances for training and want to reduce costs without impacting performance..."></textarea>
+                    </div>
+
+                    <button type="submit" class="form-submit" id="submitBtn">Schedule Free Audit</button>
+                </form>
+            </div>
+
+            <div id="successMessage" class="form-success">
+                <div class="success-icon">✓</div>
+                <h3 class="success-title">We'll Be In Touch Soon!</h3>
+                <p class="success-text">
+                    Thank you for your interest. Our team will analyze your requirements and reach out within 24 hours with a detailed audit plan.
+                </p>
+                <button class="btn-secondary" style="margin-top: 2rem;" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Modal functions
+        function openModal() {
+            const modal = document.getElementById('contactModal');
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('contactModal');
+            modal.classList.remove('active');
+            document.body.style.overflow = '';
+            
+            // Reset form after closing
+            setTimeout(() => {
+                document.getElementById('contactForm').style.display = 'block';
+                document.getElementById('successMessage').classList.remove('active');
+                document.querySelector('form').reset();
+            }, 300);
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('contactModal').addEventListener('click', (e) => {
+            if (e.target.id === 'contactModal') {
+                closeModal();
+            }
+        });
+
+        // Handle form submission
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
+
+            // Simulate form submission (replace with actual API call)
+            setTimeout(() => {
+                document.getElementById('contactForm').style.display = 'none';
+                document.getElementById('successMessage').classList.add('active');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Schedule Free Audit';
+
+                // In production, send to your backend:
+                // const formData = new FormData(e.target);
+                // fetch('/api/submit-audit', { method: 'POST', body: formData })
+            }, 1500);
+        }
+
+        // Mobile menu toggle
+        function toggleMobileMenu() {
+            const mobileMenu = document.getElementById('mobileMenu');
+            const menuToggle = document.getElementById('mobileMenuToggle');
+            mobileMenu.classList.toggle('active');
+            menuToggle.classList.toggle('active');
+        }
+
+        // Close mobile menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const mobileMenu = document.getElementById('mobileMenu');
+            const menuToggle = document.getElementById('mobileMenuToggle');
+            if (!mobileMenu.contains(e.target) && !menuToggle.contains(e.target)) {
+                mobileMenu.classList.remove('active');
+                menuToggle.classList.remove('active');
+            }
+        });
+
+        // Cursor glow effect
+        const cursorGlow = document.getElementById('cursorGlow');
+        document.addEventListener('mousemove', (e) => {
+            cursorGlow.style.transform = `translate(${e.clientX - 200}px, ${e.clientY - 200}px)`;
+        });
+
+        // Calculator logic
+        const monthlySpendSlider = document.getElementById('monthlySpend');
+        const gpuTypesSlider = document.getElementById('gpuTypes');
+        const onDemandSlider = document.getElementById('onDemand');
+
+        const gpuTypeNames = ['All A10/T4', 'A100 Heavy', 'H100/A100 Mix', 'All H100'];
+
+        function updateCalculator() {
+            const monthlySpend = parseInt(monthlySpendSlider.value);
+            const gpuType = parseInt(gpuTypesSlider.value);
+            const onDemandPercent = parseInt(onDemandSlider.value);
+
+            // Update display values
+            document.getElementById('spendValue').textContent = monthlySpend.toLocaleString();
+            document.getElementById('gpuValue').textContent = gpuTypeNames[gpuType - 1];
+            document.getElementById('onDemandValue').textContent = onDemandPercent;
+
+            // Calculate savings
+            const spotSavingsRate = 0.65;
+            const spotMigrationPercent = onDemandPercent / 100 * 0.5; // Can move 50% to spot
+            const spotSavings = Math.round(monthlySpend * spotMigrationPercent * spotSavingsRate);
+
+            const rightsizingRate = gpuType === 4 ? 0.4 : gpuType === 3 ? 0.2 : 0.1;
+            const rightsizingSavings = Math.round(monthlySpend * rightsizingRate * 0.25);
+
+            const pipelineSavings = Math.round(monthlySpend * 0.1);
+
+            const totalMonthlySavings = spotSavings + rightsizingSavings + pipelineSavings;
+            const annualSavings = totalMonthlySavings * 12;
+
+            // Update output
+            document.getElementById('monthlySavings').textContent = totalMonthlySavings.toLocaleString();
+            document.getElementById('annualSavings').textContent = annualSavings.toLocaleString();
+            document.getElementById('spotSavings').textContent = spotSavings.toLocaleString();
+            document.getElementById('rightsizingSavings').textContent = rightsizingSavings.toLocaleString();
+            document.getElementById('pipelineSavings').textContent = pipelineSavings.toLocaleString();
+        }
+
+        monthlySpendSlider.addEventListener('input', updateCalculator);
+        gpuTypesSlider.addEventListener('input', updateCalculator);
+        onDemandSlider.addEventListener('input', updateCalculator);
+
+        // Scroll animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -100px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.fade-in-up').forEach(el => observer.observe(el));
+
+        // Smooth scroll
+        function scrollToSection(id) {
+            // If clicking "Get Free Audit", open modal instead
+            if (id === 'cta') {
+                openModal();
+                return;
+            }
+
+            const element = document.getElementById(id);
+            if (element) {
+                const navHeight = document.querySelector('nav').offsetHeight;
+                const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+                const offsetPosition = elementPosition - navHeight - 20;
+
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: 'smooth'
+                });
+            }
+        }
+
+        // Update nav on scroll
+        let lastScroll = 0;
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('nav');
+            const currentScroll = window.pageYOffset;
+
+            if (currentScroll > 100) {
+                nav.style.background = 'rgba(10, 14, 26, 0.95)';
+            } else {
+                nav.style.background = 'rgba(10, 14, 26, 0.8)';
+            }
+
+            lastScroll = currentScroll;
+        });
+
+        // Prevent scrolling when mobile menu is open
+        const mobileMenu = document.getElementById('mobileMenu');
+        const observer2 = new MutationObserver(() => {
+            if (mobileMenu.classList.contains('active')) {
+                document.body.style.overflow = 'hidden';
+            } else {
+                document.body.style.overflow = '';
+            }
+        });
+        observer2.observe(mobileMenu, { attributes: true, attributeFilter: ['class'] });
+    </script>
+</body>
+</html>
